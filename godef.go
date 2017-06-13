@@ -38,10 +38,13 @@ var memprofile = flag.String("memprofile", "", "write memory profile to `file`")
 
 func fail(s string, a ...interface{}) {
 	fmt.Fprint(os.Stderr, "godef: "+fmt.Sprintf(s, a...)+"\n")
-	os.Exit(2)
 }
 
 func main() {
+	os.Exit(realMain())
+}
+
+func realMain() int {
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage: godef [flags] [expr]\n")
 		flag.PrintDefaults()
@@ -49,7 +52,7 @@ func main() {
 	flag.Parse()
 	if flag.NArg() > 1 {
 		flag.Usage()
-		os.Exit(2)
+		return 2
 	}
 	if *cpuprofile != "" {
 		f, err := os.Create(*cpuprofile)
@@ -73,6 +76,7 @@ func main() {
 		var err error
 		if afile, err = acmeCurrentFile(); err != nil {
 			fail("%v", err)
+			return 2
 		}
 		filename, src, searchpos = afile.name, afile.body, afile.offset
 	} else if *readStdin {
@@ -83,6 +87,7 @@ func main() {
 		b, err := ioutil.ReadFile(filename)
 		if err != nil {
 			fail("cannot read %s: %v", filename, err)
+			return 2
 		}
 		src = b
 	}
@@ -90,6 +95,7 @@ func main() {
 	f, err := parser.ParseFile(types.FileSet, filename, src, 0, pkgScope, types.DefaultImportPathToName)
 	if f == nil {
 		fail("cannot parse %s: %v", filename, err)
+		return 2
 	}
 
 	var o ast.Node
@@ -103,7 +109,7 @@ func main() {
 	default:
 		fmt.Fprintf(os.Stderr, "no expression or offset specified\n")
 		flag.Usage()
-		os.Exit(2)
+		return 2
 	}
 	// print old source location to facilitate backtracking
 	if *acmeFlag {
@@ -115,6 +121,7 @@ func main() {
 		pkg, err := build.Default.Import(path, filepath.Dir(filename), build.FindOnly)
 		if err != nil {
 			fail("error finding import path for %s: %s", path, err)
+			return 2
 		}
 		fmt.Println(pkg.Dir)
 	case ast.Expr:
@@ -122,6 +129,7 @@ func main() {
 			// try local declarations only
 			if obj, typ := types.ExprType(e, types.DefaultImporter, types.FileSet); obj != nil {
 				done(obj, typ)
+				return 0
 			}
 		}
 		// add declarations from other files in the local package and try again
@@ -136,8 +144,10 @@ func main() {
 		}
 		if obj, typ := types.ExprType(e, types.DefaultImporter, types.FileSet); obj != nil {
 			done(obj, typ)
+			return 0
 		}
 		fail("no declaration found for %v", pretty{e})
+		return 2
 	}
 	if *memprofile != "" {
 		f, err := os.Create(*memprofile)
@@ -150,12 +160,14 @@ func main() {
 		}
 		f.Close()
 	}
+	return 0
 }
 
 func importPath(n *ast.ImportSpec) string {
 	p, err := strconv.Unquote(n.Path.Value)
 	if err != nil {
 		fail("invalid string literal %q in ast.ImportSpec", n.Path.Value)
+		os.Exit(2)
 	}
 	return p
 }
@@ -234,7 +246,6 @@ func (o orderedObjects) Len() int           { return len(o) }
 func (o orderedObjects) Swap(i, j int)      { o[i], o[j] = o[j], o[i] }
 
 func done(obj *ast.Object, typ types.Type) {
-	defer os.Exit(0)
 	pos := types.FileSet.Position(types.DeclPos(obj))
 	if *jsonFlag {
 		p := struct {
