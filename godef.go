@@ -64,6 +64,19 @@ func realMain() int {
 		}
 		defer pprof.StopCPUProfile()
 	}
+	if *memprofile != "" {
+		defer func() {
+			f, err := os.Create(*memprofile)
+			if err != nil {
+				log.Fatal("could not create memory profile: ", err)
+			}
+			runtime.GC() // get up-to-date statistics
+			if err := pprof.WriteHeapProfile(f); err != nil {
+				log.Fatal("could not write memory profile: ", err)
+			}
+			f.Close()
+		}()
+	}
 
 	types.Debug = *debug
 	*tflag = *tflag || *aflag || *Aflag
@@ -148,17 +161,6 @@ func realMain() int {
 		}
 		fail("no declaration found for %v", pretty{e})
 		return 2
-	}
-	if *memprofile != "" {
-		f, err := os.Create(*memprofile)
-		if err != nil {
-			log.Fatal("could not create memory profile: ", err)
-		}
-		runtime.GC() // get up-to-date statistics
-		if err := pprof.WriteHeapProfile(f); err != nil {
-			log.Fatal("could not write memory profile: ", err)
-		}
-		f.Close()
 	}
 	return 0
 }
